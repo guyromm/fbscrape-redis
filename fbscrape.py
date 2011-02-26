@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 #port forward redis somewhere
-#ssh -R localhost:6380:localhost:6379 guyromm
+#ssh -R localhost:6380:localhost:6380 rhost
 
 import time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs
 
@@ -22,12 +22,16 @@ class AppURLopener(urllib.FancyURLopener):
 
 urllib._urlopener = AppURLopener()
 
+if len(sys.argv)>2: prt = int(sys.argv[2])
+else: prt= 6379
+hst = '127.0.0.1'
+print 'connecting to redis at %s:%s'%(hst,prt)
+rd = redis.Redis(host=hst,port=prt)
 
-rd = redis.Redis('localhost')
-fp = open('fb_pages.txt','r')
 
     
 def fillq():
+    fp = open('fb_pages.txt','r')
     ex=0 ; added=0
     print 'got %s in toscrape queue'%rd.scard('toscrape')
     while True:
@@ -44,7 +48,7 @@ def fillq():
             #print 'have no key %s'%ln
             cnt = rd.scard('toscrape')
             if cnt<2000:
-                print 'k+ %s'%ln
+                #print 'k+ %s'%ln
                 rd.sadd('toscrape',ln.strip('\r\n\t '))
                 added+=1
             else:
@@ -69,7 +73,12 @@ def scrapeone(fn=None):
         nm = fn
         ts = url+';;;;'+nm
     else:
-        ts = rd.spop('toscrape').strip('\n\r\t ')
+        ts = rd.spop('toscrape')
+        if not ts:
+            print 'out of scraping queue'
+            time.sleep(30)
+            return None
+        ts = ts.strip('\n\r\t ')
         if not ts:
             print 'nothing to scrape'
             return None
@@ -127,14 +136,15 @@ if len(sys.argv)>1:
     elif sys.argv[1]=='scrape':
         procs={}
         cmds = ['./fbscrape.py','scrapeone']
+        fillqargs = ['./fbscrape.py','fillq']
+        procs['fillq'] = {'args':fillqargs,'proc':subprocess.Popen(fillqargs)}
+        for i in range(1,20):
+            print 'kicking off %s'%cmds
+            procs[i]={'args':cmds,'proc':subprocess.Popen(cmds)}
         while True:
-            for i in range(1,20):
-                if i not in procs:
-                    print 'kicking off %s'%cmds
-                    procs[i]=subprocess.Popen(cmds)
-                else:
-                    pollres = procs[i].poll()
-                    print '%s poll = %s'%(i,pollres)
-                    if pollres!=None:
-                        procs[i]=subprocess.Popen(cmds)
+            for i in procs:
+                pollres = procs[i]['proc'].poll()
+                print '%s poll = %s'%(i,pollres)
+                if type(pollres)==int:
+                    procs[i]['proc']=subprocess.Popen(procs[i]['args'])
             time.sleep(5)
