@@ -114,8 +114,8 @@ def scrapeone(fn=None):
                 else: descr='NODESCR'
                 likes = lk2.search(cont).group(1).replace(',','')
 
-        except:
-            fpt = open('lastfailed.txt','w') ; fpt.write(cont) ; fpt.close()
+        except Exception,e:
+            fpt = open('lastfailed-%s.html'%(unicode(e)),'w') ; fpt.write(cont) ; fpt.close()
             print 'just written last failure in lastfailed.txt'
             raise
     op = {'pagetp':pagetp,'tp':tp,'descr':descr,'likes':likes,'url':url,'nm':html_entity_decode(nm)};
