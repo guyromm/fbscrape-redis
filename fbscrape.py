@@ -3,7 +3,7 @@
 #port forward redis somewhere
 #ssh -R localhost:6380:localhost:6380 rhost
 
-import time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
+import os,time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
 
 pattern = re.compile("&(\w+?);")
 
