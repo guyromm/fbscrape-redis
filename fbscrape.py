@@ -32,8 +32,9 @@ artifact = """\u00b7"""
 lre = re.compile('^(\d+)$')
 unire = re.compile(re.escape('\\u00')+'(.{2})')
 #print unichr(int(unire.search(src).group(1),16))
+sourcefn = 'fb_pages.txt'
 def fillq(output=False,inspect=False):
-    fp = codecs.open('fb_pages.txt','r','utf-8')
+    fp = codecs.open(sourcefn,'r','utf-8')
     ex=0 ; added=0 ; deled=0 ; cnt=0
     #print 'got %s in toscrape queue'%rd.scard('toscrape')
     while True:
@@ -186,7 +187,7 @@ if len(sys.argv)>1:
         procs={}
         cmds = ['./fbscrape.py','scrapeone']
         fillqargs = ['./fbscrape.py','fillq']
-        procs['fillq'] = {'args':fillqargs,'proc':subprocess.Popen(fillqargs)}
+        if os.path.exists(sourcefn): procs['fillq'] = {'args':fillqargs,'proc':subprocess.Popen(fillqargs)}
         for i in range(1,20):
             print 'kicking off %s'%cmds
             procs[i]={'args':cmds,'proc':subprocess.Popen(cmds)}
