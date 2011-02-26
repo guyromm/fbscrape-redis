@@ -59,7 +59,7 @@ def fillq():
 #span class=\"subtitle fsm fcg\">Interest\u003c\/span>
 catrg = re.compile('span class=(.{1,4})"subtitle fsm fcg(.{1,4})">(.*)\/span');
 #span class=\"uiNumberGiant fsxxl fwb\">3\u003c\/span>
-likesrg = re.compile('span class=(.{1,4})"(placePageStatsNumber|uiNumberGiant fsxxl fwb)(.{1,4})">(.{1,10})\/span');
+likesrg = re.compile('span class=(.{1,4})"(placePageStatsNumber|uiNumberGiant fsxxl fwb)(.{1,4})">(.{1,15})\/span');
 #dt>About:\u003c\/dt>\u003cdd>Teknologia, bideo jokoak, informatika, internte..... hau dena eta askoz gehiago &#64; Bilduan. larunbatero 09:30etan Euskadi Irratian, eta Noiznahi interneten.\u003c\/dd
 descrg = re.compile('dt>About:(.{0,22})>(.*)/dd');
 lk2 = re.compile('([0-9\,]+) (People Like This|Person Likes This)');
@@ -105,7 +105,8 @@ def scrapeone(fn=None):
                 pagetp = 'reg'
                 tp = tpe.group(3)[0:-7]
                 descr = None
-                likes = likesrg.search(cont).group(4)[0:-7].replace(',','')
+                likesre = likesrg.search(cont)
+                likes = likesre.group(4)[0:-7].replace(',','')
             else:
                 tp =None
                 pagetp = 'group'
@@ -119,7 +120,7 @@ def scrapeone(fn=None):
             print 'just written last failure in lastfailed.txt'
             raise
     op = {'pagetp':pagetp,'tp':tp,'descr':descr,'likes':likes,'url':url,'nm':html_entity_decode(nm)};
-    print op
+    print '%s=%s'%(ts,op)
     rd.set(ts,json.dumps(op))
     return True
 if len(sys.argv)>1:
