@@ -3,7 +3,7 @@
 #port forward redis somewhere
 #ssh -R localhost:6380:localhost:6380 rhost
 
-import time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs
+import time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
 
 pattern = re.compile("&(\w+?);")
 
@@ -28,23 +28,59 @@ hst = '127.0.0.1'
 print 'connecting to redis at %s:%s'%(hst,prt)
 rd = redis.Redis(host=hst,port=prt)
 
-
-    
-def fillq():
-    fp = open('fb_pages.txt','r')
-    ex=0 ; added=0
-    print 'got %s in toscrape queue'%rd.scard('toscrape')
+artifact = """\u00b7"""
+lre = re.compile('^(\d+)$')
+unire = re.compile(re.escape('\\u00')+'(.{2})')
+#print unichr(int(unire.search(src).group(1),16))
+def fillq(output=False,inspect=False):
+    fp = codecs.open('fb_pages.txt','r','utf-8')
+    ex=0 ; added=0 ; deled=0 ; cnt=0
+    #print 'got %s in toscrape queue'%rd.scard('toscrape')
     while True:
         ln = fp.readline()
+        cnt+=1
         #print ln
         if not ln:
             log.info('done file, breaking')
             break
+        ln = ln.strip('\r\n\t ')
         g = rd.get(ln)
         if g:
-            print 'ex+ %s'%ln
+            if output or inspect:
+                dt = json.loads(g)
+                if dt['likes']:
+                    likes = unicode(dt['likes'])
+                    if inspect:
+                        if ',' in likes or '.' in likes: likes=likes.replace(',','').replace('.','')
+                        if not lre.search(likes):
+                            print('BAD LIKES in %s'%dt)
+                            rd.delete(ln)
+                            deled+=1
+                else: likes='UNAVAIL'
+                if dt['tp']:
+                    tp = dt['tp'].replace(artifact,'')
+                    fi = unire.finditer(tp)
+                    fre=False
+                    for it in fi:
+                        och = '\\u00'+it.group(1)
+                        nch = unichr(int(it.group(1),16))
+                        tp = tp.replace(och,nch)
+                        #print u'%s => %s'%(och,nch)
+                        fre=True
+                    tp = tp.replace('\\/','/')
+                    #if fre: raise Exception(u'new:%s'%tp)
+                    if inspect:
+                        if unire.search(tp): raise Exception(u'still have shit in %s'%tp)
+                        if '\\/' in tp: raise Exception(u'still have crap in %s'%tp)
+                    #print tp
+
+                else: tp = 'UNAVAIL'
+
+                if output: print unicode(ln)+u';;;;'+likes+u';;;;'+tp+';;;;'+unicode(dt) # %s'%ln
+                if inspect and cnt % 100 ==0: print '%s cnt'%cnt
+                    
             ex+=1
-        else:
+        elif not inspect and not output:
             #print 'have no key %s'%ln
             cnt = rd.scard('toscrape')
             if cnt<2000:
@@ -54,17 +90,21 @@ def fillq():
             else:
                 break
                 print 'k='
-    print '%s keys exist, %s added, toscrape is %s long'%(ex,added,rd.scard('toscrape'))
+        else:
+            print 'no filling queue with %s'%ln
+            #break
+    print '%s keys exist, %s added, toscrape is %s long, %s deled'%(ex,added,rd.scard('toscrape'),deled)
 
 #span class=\"subtitle fsm fcg\">Interest\u003c\/span>
 catrg = re.compile('span class=(.{1,4})"subtitle fsm fcg(.{1,4})">(.*)\/span');
 #span class=\"uiNumberGiant fsxxl fwb\">3\u003c\/span>
-likesrg = re.compile('span class=(.{1,4})"(placePageStatsNumber|uiNumberGiant fsxxl fwb)(.{1,4})">(.{1,15})\/span');
+likesrg = re.compile('span class=(.{1,4})"(placePageStatsNumber|uiNumberGiant fsxxl fwb)(.{1,4})">(.{1,25})\/span');
 #dt>About:\u003c\/dt>\u003cdd>Teknologia, bideo jokoak, informatika, internte..... hau dena eta askoz gehiago &#64; Bilduan. larunbatero 09:30etan Euskadi Irratian, eta Noiznahi interneten.\u003c\/dd
 descrg = re.compile('dt>About:(.{0,22})>(.*)/dd');
 lk2 = re.compile('([0-9\,]+) (People Like This|Person Likes This)');
 
 
+    
 def scrapeone(fn=None):
     scr=0
     if fn:
@@ -113,7 +153,11 @@ def scrapeone(fn=None):
                 descres = descrg.search(cont)
                 if descres: descr = html_entity_decode(descres.group(2)[0:-7])
                 else: descr='NODESCR'
-                likes = lk2.search(cont).group(1).replace(',','')
+                lk2re = lk2.search(cont)
+                if lk2re:
+                    likes = lk2re.group(1).replace(',','')
+                else:
+                    likes = None
 
         except Exception,e:
             fpt = open('lastfailed-%s.html'%(unicode(e)),'w') ; fpt.write(cont) ; fpt.close()
@@ -134,6 +178,10 @@ if len(sys.argv)>1:
         while scrapeone():
             pass
         print 'done'
+    elif sys.argv[1]=='output':
+        fillq(output=True)
+    elif sys.argv[1]=='inspect':
+        fillq(inspect=True)
     elif sys.argv[1]=='scrape':
         procs={}
         cmds = ['./fbscrape.py','scrapeone']
