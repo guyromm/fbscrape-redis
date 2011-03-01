@@ -226,9 +226,15 @@ def scrapeone(fn=None):
     print '%s=%s'%(ts,op)
     rd.set(ts,json.dumps(op))
     return True
-dumpre = re.compile('^(dump|restore|dumpall|scrape|scrapeone|fillqloop|fillq)\[(\d+)\:(\d+)\]$')
+dumpre = re.compile('^(dump|restore|dumpall|scrape|scrapeone|fillqloop|fillq)\[(\d+)\:(\d+)(,(\d+)|)\]$')
 if len(sys.argv)>1:
     dumpres = dumpre.search(sys.argv[1])
+    if dumpres:
+        if dumpres.group(5):
+            incr = int(dumpres.group(5))
+        else:
+            incr=10000
+
     if sys.argv[1]=='fillq'  or (dumpres and dumpres.group(1)=='fillq'):
         if dumpres:
             fr=int(dumpres.group(2))
@@ -267,7 +273,6 @@ if len(sys.argv)>1:
     elif dumpres and dumpres.group(1)=='dump':
         fillq(dump=True,fr=int(dumpres.group(2)),to=int(dumpres.group(3)))
     elif dumpres and dumpres.group(1)=='dumpall':
-        incr=10000
         cur = int(dumpres.group(2))
         while cur<int(dumpres.group(3)):
             print 'dumping %s - %s'%(cur,cur+incr)
