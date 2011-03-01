@@ -33,21 +33,37 @@ lre = re.compile('^(\d+)$')
 unire = re.compile(re.escape('\\u00')+'(.{2})')
 #print unichr(int(unire.search(src).group(1),16))
 sourcefn = 'fb_pages.txt'
-def fillq(output=False,inspect=False):
+firstnline=None
+def fillq(output=False,inspect=False,dump=False,fr=None,to=None):
+    if dump:
+        dfn = 'dump_%s-%s.txt'%(fr,to)
+        dfp = None
+        print 'dumping to %s'%dfn
+    global firstnline
     fp = codecs.open(sourcefn,'r','utf-8')
-    ex=0 ; added=0 ; deled=0 ; cnt=0
-    #print 'got %s in toscrape queue'%rd.scard('toscrape')
+    ex=0 ; added=0 ; deled=0 ; counter=0 ; dumped=0 ; skipped=0
+    ints = rd.scard('toscrape')
+    print 'got %s in toscrape queue (output=%s,inspect=%s)'%(ints,output,inspect)
     while True:
         ln = fp.readline()
-        cnt+=1
+        counter+=1
+        if firstnline and counter<firstnline:
+            if counter % 100000 ==0: print 'cntskip (%s<%s)'%(counter,firstnline)
+            continue
+        if (fr and counter<fr):
+            if counter % 100000 ==0 : print 'cntskip2 %s (%s-%s)'%(counter,fr,to)
+            continue
+        if  to and counter>=to:
+            print 'cntskip3 %s (%s-%s)'%(counter,fr,to)
+            break
         #print ln
         if not ln:
-            log.info('done file, breaking')
+            print ('done file, breaking')
             break
         ln = ln.strip('\r\n\t ')
         g = rd.get(ln)
         if g:
-            if output or inspect:
+            if output or inspect or dump:
                 dt = json.loads(g)
                 if dt['likes']:
                     likes = unicode(dt['likes'])
@@ -78,24 +94,44 @@ def fillq(output=False,inspect=False):
                 else: tp = 'UNAVAIL'
 
                 if output: print unicode(ln)+u';;;;'+likes+u';;;;'+tp+';;;;'+unicode(dt) # %s'%ln
-                if inspect and cnt % 100 ==0: print '%s cnt'%cnt
-                    
+                if inspect and counter % 100 ==0: print '%s cnt'%counter
+
+                if dump and counter>=fr and counter<to:
+                    dstr = ln+';;;;'+json.dumps(dt)+'\n'
+                    if not dfp:
+                        print 'opening dfp for writing %s'%dfn
+                        dfp = codecs.open(dfn,'w','utf-8')
+                    dfp.write(dstr)
+                    dumped+=1
+                    rd.delete(ln)
+                    if dumped % 1000==0: print 'dumped %s'%dumped
+                elif dump and counter>=to:
+                    print 'done dumping'
+                    break
             ex+=1
-        elif not inspect and not output:
-            #print 'have no key %s'%ln
-            cnt = rd.scard('toscrape')
-            if cnt<2000:
-                #print 'k+ %s'%ln
-                rd.sadd('toscrape',ln.strip('\r\n\t '))
-                added+=1
+            if ex % 10000 ==0: print '%s ex (cnt=%s)'%(ex,counter)
+        elif not inspect and not output and not dump:
+            firstnline = counter
+            print 'have no key %s (added=%s;ints=%s)'%(ln,added,ints)
+            if (added+ints)<10000:
+                print 'k+ %s'%ln
+                ra = rd.sadd('toscrape',ln.strip('\r\n\t '))
+                if ra:
+                    added+=1
+                    if added % 100 ==0: print 'added %s'%added
             else:
                 break
                 print 'k='
         else:
-            print 'no filling queue with %s'%ln
+            #print 'no filling queue with %s'%ln
+            skipped+=1
+            if skipped % 100000==0: print 'skip %s'%skipped
             #break
-    print '%s keys exist, %s added, toscrape is %s long, %s deled'%(ex,added,rd.scard('toscrape'),deled)
-
+    print '%s keys exist, %s added, toscrape is %s long, %s deled, %s dumped, skipped=%s'%(ex,added,rd.scard('toscrape'),deled,dumped,skipped)
+    if dump and dfp:
+        print 'closing dump file'
+        dfp.close()
+    
 #span class=\"subtitle fsm fcg\">Interest\u003c\/span>
 catrg = re.compile('span class=(.{1,4})"subtitle fsm fcg(.{1,4})">(.*)\/span');
 #span class=\"uiNumberGiant fsxxl fwb\">3\u003c\/span>
@@ -104,7 +140,25 @@ likesrg = re.compile('span class=(.{1,4})"(placePageStatsNumber|uiNumberGiant fs
 descrg = re.compile('dt>About:(.{0,22})>(.*)/dd');
 lk2 = re.compile('([0-9\,]+) (People Like This|Person Likes This)');
 
-
+def restore(fr,to):
+    fn = 'dump_%s-%s.txt'%(fr,to)
+    fp = codecs.open(fn,'r','utf-8')
+    rest=0
+    while True:
+        ln = fp.readline()
+        if not ln:
+            print 'eof'
+            break
+        ln = ln.strip('\n\t ')
+        nm,url,js = ln.split(';;;;')
+        tk = nm+';;;;'+url
+        g = rd.get(tk)
+        #if g and json.loads(js)!=json.loads(g): raise Exception('data differs for %s. abort\n%s\n%s'%(tk,js,g))
+        rd.set(tk,js)
+        rest+=1
+        if rest % 1000  ==0: print 'rest %s'%rest
+    print 'done %s'%rest
+    fp.close()
     
 def scrapeone(fn=None):
     scr=0
@@ -147,7 +201,11 @@ def scrapeone(fn=None):
                 tp = tpe.group(3)[0:-7]
                 descr = None
                 likesre = likesrg.search(cont)
-                likes = likesre.group(4)[0:-7].replace(',','')
+                if not likesre:
+                    likes=None
+                else:
+                    likes = likesre.group(4)[0:-7].replace(',','')
+
             else:
                 tp =None
                 pagetp = 'group'
@@ -168,14 +226,37 @@ def scrapeone(fn=None):
     print '%s=%s'%(ts,op)
     rd.set(ts,json.dumps(op))
     return True
+dumpre = re.compile('^(dump|restore|dumpall|scrape|scrapeone|fillqloop|fillq)\[(\d+)\:(\d+)\]$')
 if len(sys.argv)>1:
-    if sys.argv[1]=='fillq':
-        fillq()
+    dumpres = dumpre.search(sys.argv[1])
+    if sys.argv[1]=='fillq'  or (dumpres and dumpres.group(1)=='fillq'):
+        if dumpres:
+            fr=int(dumpres.group(2))
+            to=int(dumpres.group(3))
+        else:
+            fr=None
+            to=None
+
+        fillq(fr=fr,to=to)
+    elif sys.argv[1]=='status':
+        print 'got %s in queue'%(rd.scard('toscrape'))
+    elif sys.argv[1]=='fillqloop' or (dumpres and dumpres.group(1)=='fillqloop'):
+        if dumpres:
+            fr=int(dumpres.group(2))
+            to=int(dumpres.group(3))
+        else:
+            fr=None
+            to=None
+                   
+        while True:
+            fillq(fr=fr,to=to)
+            print 'fillq run done, sleeping'
+            time.sleep(60)
     elif sys.argv[1]=='testscrape':
         st,op = commands.getstatusoutput('ls *.html')
         for fn in op.split('\n'):
             scrapeone(fn)
-    elif sys.argv[1]=='scrapeone':
+    elif sys.argv[1]=='scrapeone' or (dumpres and dumpres.group(1)=='scrapeone'):
         while scrapeone():
             pass
         print 'done'
@@ -183,10 +264,30 @@ if len(sys.argv)>1:
         fillq(output=True)
     elif sys.argv[1]=='inspect':
         fillq(inspect=True)
-    elif sys.argv[1]=='scrape':
+    elif dumpres and dumpres.group(1)=='dump':
+        fillq(dump=True,fr=int(dumpres.group(2)),to=int(dumpres.group(3)))
+    elif dumpres and dumpres.group(1)=='dumpall':
+        incr=10000
+        cur = int(dumpres.group(2))
+        while cur<int(dumpres.group(3)):
+            print 'dumping %s - %s'%(cur,cur+incr)
+            fillq(dump=True,fr=cur,to=cur+incr)
+            cur+=incr
+    elif dumpres and dumpres.group(1)=='restore':
+        restore(fr=int(dumpres.group(2)),to=int(dumpres.group(3)))
+        
+    elif sys.argv[1]=='scrape' or (dumpres and dumpres.group(1)=='scrape'):
         procs={}
-        cmds = ['./fbscrape.py','scrapeone']
-        fillqargs = ['./fbscrape.py','fillq']
+        if dumpres:
+            fr= int(dumpres.group(2))
+            to = int(dumpres.group(3))
+            cmds = ['./fbscrape.py','scrapeone[%s:%s]'%(fr,to)]
+            fillqargs = ['./fbscrape.py','fillqloop[%s:%s]'%(fr,to)]
+        else:
+            fr = None
+            to = None
+            cmds = ['./fbscrape.py','scrapeone']
+            fillqargs = ['./fbscrape.py','fillqloop']
         if os.path.exists(sourcefn): procs['fillq'] = {'args':fillqargs,'proc':subprocess.Popen(fillqargs)}
         for i in range(1,20):
             print 'kicking off %s'%cmds
