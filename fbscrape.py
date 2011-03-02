@@ -1,9 +1,9 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 #port forward redis somewhere
 #ssh -R localhost:6380:localhost:6380 rhost
 
-import os,time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
+import os,datetime,time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
 
 pattern = re.compile("&(\w+?);")
 
@@ -233,7 +233,7 @@ if len(sys.argv)>1:
         if dumpres.group(5):
             incr = int(dumpres.group(5))
         else:
-            incr=10000
+            incr=100000
 
     if sys.argv[1]=='fillq'  or (dumpres and dumpres.group(1)=='fillq'):
         if dumpres:
@@ -245,6 +245,8 @@ if len(sys.argv)>1:
 
         fillq(fr=fr,to=to)
     elif sys.argv[1]=='status':
+        print datetime.datetime.now()
+        print '%s keys'%rd.info()['db0']['keys']
         print 'got %s in queue'%(rd.scard('toscrape'))
     elif sys.argv[1]=='fillqloop' or (dumpres and dumpres.group(1)=='fillqloop'):
         if dumpres:
