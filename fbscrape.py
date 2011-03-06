@@ -3,8 +3,9 @@
 #port forward redis somewhere
 #ssh -R localhost:6380:localhost:6380 rhost
 
-import os,datetime,time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
+import locale,os,datetime,time,subprocess,sys,redis,commands,re,urllib,json,htmlentitydefs,codecs
 
+sys.stdout = codecs.getwriter(locale.getpreferredencoding())(sys.stdout)
 pattern = re.compile("&(\w+?);")
 
 def html_entity_decode_char(m, defs=htmlentitydefs.entitydefs):
@@ -34,7 +35,7 @@ unire = re.compile(re.escape('\\u00')+'(.{2})')
 #print unichr(int(unire.search(src).group(1),16))
 sourcefn = 'fb_pages.txt'
 firstnline=None
-def fillq(output=False,inspect=False,dump=False,fr=None,to=None):
+def fillq(output=False,inspect=False,dump=False,fr=None,to=None,tpfilter=None):
     if dump:
         dfn = 'dump_%s-%s.txt'%(fr,to)
         dfp = None
@@ -44,6 +45,7 @@ def fillq(output=False,inspect=False,dump=False,fr=None,to=None):
     ex=0 ; added=0 ; deled=0 ; counter=0 ; dumped=0 ; skipped=0
     ints = rd.scard('toscrape')
     print 'got %s in toscrape queue (output=%s,inspect=%s)'%(ints,output,inspect)
+    pagetps={} ; tps={}
     while True:
         ln = fp.readline()
         counter+=1
@@ -93,8 +95,23 @@ def fillq(output=False,inspect=False,dump=False,fr=None,to=None):
 
                 else: tp = 'UNAVAIL'
 
-                if output: print unicode(ln)+u';;;;'+likes+u';;;;'+tp+';;;;'+unicode(dt) # %s'%ln
-                if inspect and counter % 100 ==0: print '%s cnt'%counter
+                if output:
+                    if not tpfilter or tpfilter==dt['pagetp']:
+                        print unicode(ln)+u';;;;'+dt['pagetp']+';;;;'+likes+u';;;;'+tp #+';;;;'+unicode(dt) # %s'%ln
+                #if dt['pagetp']=='group': raise Exception(dt)
+                if inspect and ( not tpfilter or (tpfilter and 'pagetp' in dt and dt['pagetp']==tpfilter)):
+                    try:
+                        ptp = dt[u'pagetp']
+                    except KeyError:
+                        rd.delete(ln)
+                        deled+=1
+                    if ptp not in pagetps: pagetps[ptp]=0
+                    pagetps[ptp]+=1
+                    if ptp not in tps: tps[ptp]={}
+                    if tp not in tps[ptp]: tps[ptp][tp]=0
+                    tps[ptp][tp]+=1
+                    
+                if inspect and counter % 10000 ==0: print '%s cnt'%counter
 
                 if dump and counter>=fr and counter<to:
                     dstr = ln+';;;;'+json.dumps(dt)+'\n'
@@ -128,6 +145,8 @@ def fillq(output=False,inspect=False,dump=False,fr=None,to=None):
             if skipped % 100000==0: print 'skip %s'%skipped
             #break
     print '%s keys exist, %s added, toscrape is %s long, %s deled, %s dumped, skipped=%s'%(ex,added,rd.scard('toscrape'),deled,dumped,skipped)
+    if inspect:
+        print 'pagetps:\n',pagetps,'\ntps:',tps
     if dump and dfp:
         print 'closing dump file'
         dfp.close()
@@ -226,14 +245,24 @@ def scrapeone(fn=None):
     print '%s=%s'%(ts,op)
     rd.set(ts,json.dumps(op))
     return True
-dumpre = re.compile('^(dump|restore|dumpall|scrape|scrapeone|fillqloop|fillq)\[(\d+)\:(\d+)(,(\d+)|)\]$')
+dumpre = re.compile('^(output|dump|restore|inspect|restoreincr|dumpall|scrape|scrapeone|fillqloop|fillq)\[(\d+)\:(\d+)(,(.+)|)\]$')
 if len(sys.argv)>1:
     dumpres = dumpre.search(sys.argv[1])
     if dumpres:
-        if dumpres.group(5):
+        if dumpres.group(5) and dumpres.group(1)not in ['output','inspect']:
             incr = int(dumpres.group(5))
+        elif dumpres.group(5) and dumpres.group(1) in ['output','inspect']:
+            incr = dumpres.group(5)
         else:
             incr=100000
+        fr=int(dumpres.group(2))
+        to=int(dumpres.group(3))
+        print 'incr is %s'%incr        
+    else:
+        incr=None
+        fr=None
+        to=None
+            
 
     if sys.argv[1]=='fillq'  or (dumpres and dumpres.group(1)=='fillq'):
         if dumpres:
@@ -249,12 +278,6 @@ if len(sys.argv)>1:
         print '%s keys'%rd.info()['db0']['keys']
         print 'got %s in queue'%(rd.scard('toscrape'))
     elif sys.argv[1]=='fillqloop' or (dumpres and dumpres.group(1)=='fillqloop'):
-        if dumpres:
-            fr=int(dumpres.group(2))
-            to=int(dumpres.group(3))
-        else:
-            fr=None
-            to=None
                    
         while True:
             fillq(fr=fr,to=to)
@@ -268,10 +291,10 @@ if len(sys.argv)>1:
         while scrapeone():
             pass
         print 'done'
-    elif sys.argv[1]=='output':
-        fillq(output=True)
-    elif sys.argv[1]=='inspect':
-        fillq(inspect=True)
+    elif sys.argv[1]=='output' or (dumpres and dumpres.group(1)=='output'):
+        fillq(output=True,fr=fr,to=to,tpfilter=incr)
+    elif sys.argv[1]=='inspect' or (dumpres and dumpres.group(1)=='inspect'):
+        fillq(inspect=True,fr=fr,to=to,tpfilter=incr)
     elif dumpres and dumpres.group(1)=='dump':
         fillq(dump=True,fr=int(dumpres.group(2)),to=int(dumpres.group(3)))
     elif dumpres and dumpres.group(1)=='dumpall':
@@ -279,6 +302,14 @@ if len(sys.argv)>1:
         while cur<int(dumpres.group(3)):
             print 'dumping %s - %s'%(cur,cur+incr)
             fillq(dump=True,fr=cur,to=cur+incr)
+            cur+=incr
+    elif dumpres and dumpres.group(1)=='restoreincr':
+        fr = int(dumpres.group(2))
+        to = int(dumpres.group(3))
+        cur = fr
+        while cur<to:
+            print 'restoring %s-%s'%(cur,cur+incr)
+            restore(fr=cur,to=cur+incr)
             cur+=incr
     elif dumpres and dumpres.group(1)=='restore':
         restore(fr=int(dumpres.group(2)),to=int(dumpres.group(3)))
