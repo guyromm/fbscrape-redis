@@ -1,0 +1,1 @@
+a facebook group scraper/parser which takes an input in the form of a textfile url list & uses redis to queue and store scrape results.
